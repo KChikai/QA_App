@@ -21,13 +21,12 @@ import android.view.inputmethod.InputMethodManager
 import androidx.preference.PreferenceManager
 import com.google.android.material.snackbar.Snackbar
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.database.DatabaseError
-import com.google.firebase.database.DatabaseReference
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.android.synthetic.main.activity_question_send.*
 import java.io.ByteArrayOutputStream
 
-class QuestionSendActivity : AppCompatActivity(), View.OnClickListener, DatabaseReference.CompletionListener {
+class QuestionSendActivity : AppCompatActivity(), View.OnClickListener {
 
     companion object {
         private const val PERMISSIONS_REQUEST_CODE = 100
@@ -137,9 +136,14 @@ class QuestionSendActivity : AppCompatActivity(), View.OnClickListener, Database
             // Preferenceから名前を取る
             val sp = PreferenceManager.getDefaultSharedPreferences(this)
             val name = sp.getString(NameKEY, "")
-            data["title"] = title
-            data["body"] = body
-            data["name"] = name!!
+
+            // FirestoreQuestionのインスタンスを作成し、値を詰めていく
+            var fireStoreQuestion = FireStoreQuestion()
+            fireStoreQuestion.uid = FirebaseAuth.getInstance().currentUser?.uid ?: ""
+            fireStoreQuestion.title = title
+            fireStoreQuestion.body = body
+            fireStoreQuestion.name = name!!
+            fireStoreQuestion.genre = mGenre
 
             // 添付画像を取得する
             val drawable = imageView.drawable as? BitmapDrawable
@@ -151,10 +155,25 @@ class QuestionSendActivity : AppCompatActivity(), View.OnClickListener, Database
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 80, baos)
                 val bitmapString = Base64.encodeToString(baos.toByteArray(), Base64.DEFAULT)
 
-                data["image"] = bitmapString
+                fireStoreQuestion.image = bitmapString
             }
 
-            genreRef.push().setValue(data, this)
+            // Firestoreにデータをアップロード
+            FirebaseFirestore.getInstance()
+                .collection(ContentsPATH)
+                .document(fireStoreQuestion.id)
+                .set(fireStoreQuestion)
+                .addOnSuccessListener {
+                    progressBar.visibility = View.GONE
+                    finish()
+                }
+                .addOnFailureListener {
+                    it.printStackTrace()
+                    progressBar.visibility = View.GONE
+                    Snackbar.make(findViewById(android.R.id.content),
+                        getString(R.string.question_send_error_message), Snackbar.LENGTH_LONG).show()
+                }
+
             progressBar.visibility = View.VISIBLE
         }
     }
@@ -203,16 +222,4 @@ class QuestionSendActivity : AppCompatActivity(), View.OnClickListener, Database
         startActivityForResult(chooserIntent, CHOOSER_REQUEST_CODE)
     }
 
-    /**
-     *Firebaseへの保存完了時に呼ばれる。
-     */
-    override fun onComplete(databaseError: DatabaseError?, databaseReference: DatabaseReference) {
-        progressBar.visibility = View.GONE
-        if (databaseError == null) {
-            finish()
-        } else {
-            Snackbar.make(findViewById(android.R.id.content),
-                getString(R.string.question_send_error_message), Snackbar.LENGTH_LONG).show()
-        }
-    }
 }
